@@ -43,17 +43,6 @@ void add_command(unsigned argsSize, char **args, pid_t pid) {
 }
 
 /**
- * Print all running commands info
- * @return 1, in order to tell the program to keep running
- */
-int print_running_commands() {
-    for (unsigned int i = 0; i < NumOfJobs; ++i) {
-        printf("%d %s\n", Jobs[i].pid, Jobs[i].name);
-    }
-    return 1;
-}
-
-/**
  * Remove command with the given pid from jobs array
  * @param pid running process pid
  */
@@ -66,6 +55,71 @@ void remove_command(pid_t pid) {
     for (; location < NumOfJobs; ++location)
         Jobs[location] = Jobs[location + 1];
     if (NumOfJobs)--NumOfJobs;
+}
+
+/**
+ * Print all running commands info
+ * @return 1, in order to tell the program to keep running
+ */
+int print_running_commands() {
+    for (unsigned int i = 0; i < NumOfJobs; ++i) {
+        printf("%d %s\n", Jobs[i].pid, Jobs[i].name);
+    }
+    return 1;
+}
+
+/**
+ * check if the command is special(either cd, exit, jobs or man)
+ * @param args arguments
+ * @return 2 if no command requires special treatment, else returns command required finish status
+ */
+int special_commands(char **args) {
+    if (!strcmp(args[0], "jobs")) return print_running_commands();
+    else if (!strcmp(args[0], "cd")) {
+        printf("%d\n", getpid());
+        return ~chdir(args[1]);
+    } else if (!strcmp(args[0], "exit")) {
+        printf("%d\n", getpid());
+        return 0;
+    } else if (!strcmp(args[0], "man")) {
+        printf("%d\n", getpid());
+        // TODO: man
+    }
+    return 2;
+}
+
+/**
+ * Run the command
+ * @param args argument array
+ */
+void execute(char **args) {
+    char bin[32] = "/bin/";
+    char *path = strcat(bin, args[0]);
+    printf("%d\n", getpid()); // print PID of new process
+    execv(path, args);
+    fprintf(stderr, "Error in system call"); // gets here if error occured on execute
+}
+
+/**
+ * start dealing with the user's request
+ * @param argsSize number of arguments
+ * @param args arguments
+ * @param shouldWait 1 if father needs to wait for forked child, else 0
+ * @return > 0 if shell should continue running, else 0
+ */
+int start(unsigned int argsSize, char **args, int shouldWait) {
+    int returnVal;
+    pid_t pid;
+    if ((returnVal = special_commands(args)) == 2) {
+        int status;
+        pid = fork();
+        if (!pid) execute(args); // child will execute the command
+        else if (shouldWait) wait(&status); // parent will wait
+        else add_command(argsSize, args, pid); // parent will add the given command to Jobs and continue
+        // collect all PID's of dead child and remove theme from Jobs array:
+        while ((pid = waitpid(-1, &status, WNOHANG)) != -1) remove_command(pid);
+    }
+    return returnVal;
 }
 
 /**
@@ -94,7 +148,7 @@ char **create_args(char *input) {
         args[argsSize] = token;
         token = strtok(NULL, " ");
         ++argsSize;
-    }
+    } // ^ inside loop : continue splitting by space, and add argument to args array
     args[argsSize] = NULL;
     char **arr = args;
     return arr;
@@ -108,71 +162,6 @@ unsigned int number_of_args(char **args) {
     unsigned int i = 0;
     while (args[i]) ++i;
     return i;
-}
-
-/**
- * @return 0, in order to tell the program to finish
- */
-int exit_shell() { return 0; }
-
-/**
- * @param args arguments
- * @return 1, to tell the program to keep running
- */
-int cd(char **args) {
-    // TODO : cd function
-    return 1;
-}
-
-/**
- * check if the command is special(either cd, exit, jobs or man )
- * @param args arguments
- * @return 2 if no command requires special treatment, else returns command finish status
- */
-int special_commands(char **args) {
-    if (!strcmp(args[0], "jobs")) return print_running_commands();
-    else if (!strcmp(args[0], "cd")) return cd(args);
-    else if (!strcmp(args[0], "exit")) return exit_shell();
-    else if (!strcmp(args[0], "man")) {
-        // TODO: man
-    }
-    return 2;
-}
-
-/**
- * Run the command
- * @param args argument array
- */
-void execute(char **args) {
-    char bin[32] = "/bin/";
-    char *path = strcat(bin, args[0]);
-    printf("%d\n", getpid()); // print PID of new process
-    execv(path, args);
-}
-
-/**
- * start dealing with the user's request
- * @param argsSize number of arguments
- * @param args arguments
- * @param shouldWait 1 if father needs to wait for forked child, else 0
- * @return 1 if shell should continue running, else 0
- */
-int start(unsigned int argsSize, char **args, int shouldWait) {
-    if(special_commands(args) == 2){
-        int status;
-        pid_t pid = fork();
-        if (!pid) {
-            execute(args);
-        } else {
-            if (shouldWait) {
-                wait(&status);
-            } else {
-                add_command(argsSize, args, pid);
-                waitpid(pid, &status, WNOHANG);
-            }
-        }
-    }
-    return 1;
 }
 
 int run_shell() {
