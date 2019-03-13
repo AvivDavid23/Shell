@@ -12,7 +12,7 @@
 
 // info about a running command
 typedef struct Command {
-    char name[32];
+    char name[MAX_INPUT_LENGTH];
     pid_t pid;
 } Command;
 
@@ -44,45 +44,49 @@ void add_command(unsigned argsSize, char **args, pid_t pid) {
 
 /**
  * Print all running commands info
+ * @return 1, in order to tell the program to keep running
  */
-void print_running_commands() {
+int print_running_commands() {
     for (unsigned int i = 0; i < NumOfJobs; ++i) {
         printf("%d %s\n", Jobs[i].pid, Jobs[i].name);
     }
+    return 1;
 }
 
 /**
- * Remove command p info from jobs array
- * @param p running command
+ * Remove command with the given pid from jobs array
+ * @param pid running process pid
  */
-void remove_command(Command p) {
+void remove_command(pid_t pid) {
     unsigned int location = 0;
     for (unsigned int i = 0; i < NumOfJobs; ++i) {
-        if (p.pid == Jobs[i].pid && !strcmp(p.name, Jobs[i].name)) break;
+        if (pid == Jobs[i].pid) break;
         ++location;
     }
     for (; location < NumOfJobs; ++location)
         Jobs[location] = Jobs[location + 1];
     if (NumOfJobs)--NumOfJobs;
 }
+
 /**
  * Read user input
  * @return user input
  */
-char* read_input(){
+char *read_input() {
     printf(">");
     char input[MAX_INPUT_LENGTH] = {0};
     fgets(input, MAX_INPUT_LENGTH, stdin); // input
-    char * line = input;
+    char *line = input;
     return line;
 }
+
 /**
  * Split user input by spaces and create arguments array
  * @param input user input
  * @return array of arguments
  */
-char** create_args(char *input){
-    char *args[MAX_ARGS_LENGTH] ; // args array
+char **create_args(char *input) {
+    char *args[MAX_ARGS_LENGTH]; // args array
     strtok(input, "\n"); // trim \n from input
     char *token = strtok(input, " ");
     unsigned int argsSize = 0; // number of arguments
@@ -92,64 +96,100 @@ char** create_args(char *input){
         ++argsSize;
     }
     args[argsSize] = NULL;
-    char** arr = args;
+    char **arr = args;
     return arr;
 }
+
 /**
  * @param args arguments array
  * @return number of arguments
  */
-unsigned int number_of_args(char **args){
+unsigned int number_of_args(char **args) {
     unsigned int i = 0;
     while (args[i]) ++i;
     return i;
 }
+
+/**
+ * @return 0, in order to tell the program to finish
+ */
+int exit_shell() { return 0; }
+
+/**
+ * @param args arguments
+ * @return 1, to tell the program to keep running
+ */
+int cd(char **args) {
+    // TODO : cd function
+    return 1;
+}
+
+/**
+ * check if the command is special(either cd, exit, jobs or man )
+ * @param args arguments
+ * @return 2 if no command requires special treatment, else returns command finish status
+ */
+int special_commands(char **args) {
+    if (!strcmp(args[0], "jobs")) return print_running_commands();
+    else if (!strcmp(args[0], "cd")) return cd(args);
+    else if (!strcmp(args[0], "exit")) return exit_shell();
+    else if (!strcmp(args[0], "man")) {
+        // TODO: man
+    }
+    return 2;
+}
+
 /**
  * Run the command
- * @param argsSize number of arguments
  * @param args argument array
- * @param shouldWait 1 if father should wait for the run to finish
- * @param pid pid of the process that runs the command
  */
-void run_command(unsigned int argsSize, char** args, int shouldWait, pid_t pid){
-    if (!strcmp(args[0], "jobs")) {
-        print_running_commands();
-        return;
-    }
+void execute(char **args) {
     char bin[32] = "/bin/";
     char *path = strcat(bin, args[0]);
     printf("%d\n", getpid()); // print PID of new process
-    if (shouldWait)execv(path, args); // just execute, father will wait
-    else {
-        ++NumOfJobs;
-        add_command(argsSize, args, pid);
-        execv(path, args);
-    }
+    execv(path, args);
 }
-//TODO : Fix Jobs array
-int run_shell() {
-    while (1) {
-        char* input = read_input();
-        char** args = create_args(input);
-        unsigned int argsSize = number_of_args(args);
+
+/**
+ * start dealing with the user's request
+ * @param argsSize number of arguments
+ * @param args arguments
+ * @param shouldWait 1 if father needs to wait for forked child, else 0
+ * @return 1 if shell should continue running, else 0
+ */
+int start(unsigned int argsSize, char **args, int shouldWait) {
+    if(special_commands(args) == 2){
         int status;
-        pid_t pid;
+        pid_t pid = fork();
+        if (!pid) {
+            execute(args);
+        } else {
+            if (shouldWait) {
+                wait(&status);
+            } else {
+                add_command(argsSize, args, pid);
+                waitpid(pid, &status, WNOHANG);
+            }
+        }
+    }
+    return 1;
+}
+
+int run_shell() {
+    int status = 1;
+    while (status) {
+        char *input = read_input();
+        char **args = create_args(input);
+        unsigned int argsSize = number_of_args(args);
         // father will have to wait if there is no & in end of args
         int shouldWait = strcmp(args[argsSize - 1], "&");
         if (!shouldWait) { // to skip the last arg, which is &
             args[argsSize - 1] = NULL;
             --argsSize;
         }
-        if ((pid = fork() == 0)) {
-            run_command(argsSize, args, shouldWait, pid);
-        } else {
-            if (shouldWait) {
-                wait(&status);
-            } else {
-                //print_running_commands();
-            }
-        }
+        status = start(argsSize, args, shouldWait);
     }
+    return 0;
 }
 
 int main() {
