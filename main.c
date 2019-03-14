@@ -69,7 +69,7 @@ int print_running_commands() {
 }
 
 /**
- * check if the command is special(either cd, exit, jobs or man)
+ * check if the command is special(either cd, exit, or jobs)
  * @param args arguments
  * @return 2 if no command requires special treatment, else returns command required finish status
  */
@@ -81,43 +81,47 @@ int special_commands(char **args) {
     } else if (!strcmp(args[0], "exit")) {
         printf("%d\n", getpid());
         return 0;
-    } else if (!strcmp(args[0], "man")) {
-        printf("%d\n", getpid());
-        // TODO: man
     }
     return 2;
 }
 
 /**
- * Run the command
- * @param args argument array
+ * add "-P", "cat" to the arguments, in order to cat the manual page
+ * @param args arguments for man command
+ * @return corrected arguments array
  */
-void execute(char **args) {
-    char bin[32] = "/bin/";
-    char *path = strcat(bin, args[0]);
-    printf("%d\n", getpid()); // print PID of new process
-    execv(path, args);
-    fprintf(stderr, "Error in system call"); // gets here if error occured on execute
+char **prep_for_man(char **args) {
+    char *newArgs[MAX_ARGS_LENGTH + 2];
+    newArgs[0] = "man";
+    newArgs[1] = "-P";
+    newArgs[2] = "cat";
+    for (int i = 1; args[i]; ++i) newArgs[i + 3] = args[i];
+    args = newArgs;
+    return args;
 }
 
 /**
- * start dealing with the user's request
+ * execute the user's request
  * @param argsSize number of arguments
  * @param args arguments
  * @param shouldWait 1 if father needs to wait for forked child, else 0
  * @return > 0 if shell should continue running, else 0
  */
-int start(unsigned int argsSize, char **args, int shouldWait) {
+int execute(unsigned int argsSize, char **args, int shouldWait) {
     int returnVal;
     pid_t pid;
+    int status;
+    // collect all PID's of dead childes and remove theme from Jobs array:
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) remove_command(pid);
     if ((returnVal = special_commands(args)) == 2) {
-        int status;
         pid = fork();
-        if (!pid) execute(args); // child will execute the command
-        else if (shouldWait) wait(&status); // parent will wait
+        if (pid) printf("%d\n", pid); // print PID of new process
+        if (!pid) { // child will execute the command
+            if (!strcmp(args[0], "man")) args = prep_for_man(args);
+            execvp(args[0], args);
+            fprintf(stderr, "Error in system call"); // gets here if error occured on execute
+        } else if (shouldWait) wait(&status); // parent will wait
         else add_command(argsSize, args, pid); // parent will add the given command to Jobs and continue
-        // collect all PID's of dead child and remove theme from Jobs array:
-        while ((pid = waitpid(-1, &status, WNOHANG)) != -1) remove_command(pid);
     }
     return returnVal;
 }
@@ -148,7 +152,7 @@ char **create_args(char *input) {
         args[argsSize] = token;
         token = strtok(NULL, " ");
         ++argsSize;
-    } // ^ inside loop : continue splitting by space, and add argument to args array
+    } // ^ inside loop : continue splitting by space, and add arguments to args array
     args[argsSize] = NULL;
     char **arr = args;
     return arr;
@@ -169,18 +173,19 @@ int run_shell() {
     while (status) {
         char *input = read_input();
         char **args = create_args(input);
+        if (**args == '\n') continue; // empty input
         unsigned int argsSize = number_of_args(args);
         // father will have to wait if there is no & in end of args
-        int shouldWait = strcmp(args[argsSize - 1], "&");
+        int shouldWait = !(*args[argsSize - 1] == '&' && argsSize > 1);
         if (!shouldWait) { // to skip the last arg, which is &
             args[argsSize - 1] = NULL;
             --argsSize;
         }
-        status = start(argsSize, args, shouldWait);
+        status = execute(argsSize, args, shouldWait);
     }
     return 0;
 }
-
+// TODO : man command
 int main() {
     return run_shell();
 }
