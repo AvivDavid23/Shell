@@ -2,9 +2,8 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <unistd.h>
 #include <string.h>
-#include <malloc.h>
+#include <unistd.h>
 
 #define MAX_JOBS_SIZE 128
 #define MAX_INPUT_LENGTH 1024
@@ -37,7 +36,7 @@ void add_command(unsigned argsSize, char **args, pid_t pid) {
         strcat(c.name, args[j]);
         if (j != argsSize - 1) strcat(c.name, " ");
     }
-    // add process to array of Jobs
+    // add command info to array of Jobs
     Jobs[NumOfJobs] = c;
     ++NumOfJobs;
 }
@@ -77,27 +76,13 @@ int special_commands(char **args) {
     if (!strcmp(args[0], "jobs")) return print_running_commands();
     else if (!strcmp(args[0], "cd")) {
         printf("%d\n", getpid());
-        return ~chdir(args[1]);
+        if (chdir(args[1]) == -1)fprintf(stderr, "Error in system call\n");
+        return 1;
     } else if (!strcmp(args[0], "exit")) {
         printf("%d\n", getpid());
-        return 0;
+        _exit(0);
     }
     return 2;
-}
-
-/**
- * add "-P", "cat" to the arguments, in order to cat the manual page
- * @param args arguments for man command
- * @return corrected arguments array
- */
-char **prep_for_man(char **args) {
-    char *newArgs[MAX_ARGS_LENGTH + 2];
-    newArgs[0] = "man";
-    newArgs[1] = "-P";
-    newArgs[2] = "cat";
-    for (int i = 1; args[i]; ++i) newArgs[i + 3] = args[i];
-    args = newArgs;
-    return args;
 }
 
 /**
@@ -110,17 +95,21 @@ char **prep_for_man(char **args) {
 int execute(unsigned int argsSize, char **args, int shouldWait) {
     int returnVal;
     pid_t pid;
-    int status;
     // collect all PID's of dead childes and remove theme from Jobs array:
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) remove_command(pid);
+    while ((pid = waitpid(-1, NULL, WNOHANG)) > 0) remove_command(pid);
     if ((returnVal = special_commands(args)) == 2) {
-        pid = fork();
-        if (pid) printf("%d\n", pid); // print PID of new process
+        if (!strcmp(args[0], "man")) shouldWait = 1;
+        if ((pid = fork()) == -1) {
+            fprintf(stderr, "Error in system call\n");
+            return 1;
+        }
         if (!pid) { // child will execute the command
-            if (!strcmp(args[0], "man")) args = prep_for_man(args);
             execvp(args[0], args);
-            fprintf(stderr, "Error in system call"); // gets here if error occured on execute
-        } else if (shouldWait) wait(&status); // parent will wait
+            fprintf(stderr, "Error in system call\n");// gets here if error occured on execute
+            return 1;
+        }
+        printf("%d\n", pid); // print PID of new process(father holds it in pid)
+        if (shouldWait) wait(NULL); // parent will wait
         else add_command(argsSize, args, pid); // parent will add the given command to Jobs and continue
     }
     return returnVal;
@@ -176,8 +165,8 @@ int run_shell() {
         if (**args == '\n') continue; // empty input
         unsigned int argsSize = number_of_args(args);
         // father will have to wait if there is no & in end of args
-        int shouldWait = !(*args[argsSize - 1] == '&' && argsSize > 1);
-        if (!shouldWait) { // to skip the last arg, which is &
+        int shouldWait = (*args[argsSize - 1] != '&');
+        if (!shouldWait) { // to remove the last arg, which is &
             args[argsSize - 1] = NULL;
             --argsSize;
         }
@@ -185,7 +174,7 @@ int run_shell() {
     }
     return 0;
 }
-// TODO : man command
+
 int main() {
     return run_shell();
 }
