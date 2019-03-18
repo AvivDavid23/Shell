@@ -1,4 +1,3 @@
-// Aviv David 208732933
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -75,11 +74,9 @@ int print_running_commands() {
 int special_commands(char **args) {
     if (!strcmp(args[0], "jobs")) return print_running_commands();
     else if (!strcmp(args[0], "cd")) {
-        printf("%d\n", getpid());
         if (chdir(args[1]) == -1)fprintf(stderr, "Error in system call\n");
         return 1;
     } else if (!strcmp(args[0], "exit")) {
-        printf("%d\n", getpid());
         _exit(0);
     }
     return 2;
@@ -108,7 +105,6 @@ int execute(unsigned int argsSize, char **args, int shouldWait) {
             fprintf(stderr, "Error in system call\n");// gets here if error occured on execute
             return 1;
         }
-        printf("%d\n", pid); // print PID of new process(father holds it in pid)
         if (shouldWait) wait(NULL); // parent will wait
         else add_command(argsSize, args, pid); // parent will add the given command to Jobs and continue
     }
