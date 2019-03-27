@@ -105,7 +105,7 @@ int execute(unsigned int argsSize, char **args, int shouldWait) {
             fprintf(stderr, "Error in system call\n");// gets here if error occured on execute
             return 1;
         }
-        if (shouldWait) wait(NULL); // parent will wait
+        if (shouldWait) waitpid(pid,NULL, WCONTINUED); // parent will wait
         else add_command(argsSize, args, pid); // parent will add the given command to Jobs and continue
     }
     return returnVal;
